@@ -1,0 +1,549 @@
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>DocParser - Парсер документации</title>
+    <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0-alpha1/dist/css/bootstrap.min.css" rel="stylesheet">
+    <link href="https://cdn.jsdelivr.net/npm/bootstrap-icons@1.8.1/font/bootstrap-icons.css" rel="stylesheet">
+    <style>
+        .task-card {
+            margin-bottom: 15px;
+        }
+        .log-container {
+            max-height: 300px;
+            overflow-y: auto;
+            background-color: #f8f9fa;
+            padding: 10px;
+            border-radius: 4px;
+            font-family: monospace;
+            font-size: 12px;
+        }
+        .task-actions {
+            display: flex;
+            gap: 5px;
+        }
+    </style>
+</head>
+<body>
+    <div class="container mt-4">
+        <div class="row mb-4">
+            <div class="col">
+                <h1>DocParser <small class="text-muted">v{{ version }}</small></h1>
+                <p class="lead">Парсер документации для AI-обработки</p>
+            </div>
+        </div>
+
+        <!-- Создание новой задачи -->
+        <div class="row mb-4">
+            <div class="col">
+                <div class="card">
+                    <div class="card-header">
+                        <h5 class="card-title mb-0">Новая задача парсинга</h5>
+                    </div>
+                    <div class="card-body">
+                        <form id="new-task-form">
+                            <div class="mb-3">
+                                <label for="url" class="form-label">URL документации</label>
+                                <input type="url" class="form-control" id="url" name="url" placeholder="https://docs.example.com" required>
+                            </div>
+                            
+                            <div class="row">
+                                <div class="col-md-4 mb-3">
+                                    <label for="max-depth" class="form-label">Глубина обхода</label>
+                                    <input type="number" class="form-control" id="max-depth" name="max-depth" min="1" max="10" value="3">
+                                </div>
+                                <div class="col-md-4 mb-3">
+                                    <label for="delay" class="form-label">Задержка (сек)</label>
+                                    <input type="number" class="form-control" id="delay" name="delay" min="0.1" max="10" step="0.1" value="0.5">
+                                </div>
+                                <div class="col-md-4 mb-3">
+                                    <label for="timeout" class="form-label">Таймаут (сек)</label>
+                                    <input type="number" class="form-control" id="timeout" name="timeout" min="5" max="120" value="30">
+                                </div>
+                            </div>
+                            
+                            <div class="row">
+                                <div class="col-md-4 mb-3">
+                                    <label for="output-format" class="form-label">Формат вывода</label>
+                                    <select class="form-select" id="output-format" name="output-format">
+                                        <option value="markdown">Markdown</option>
+                                        <option value="json">JSON</option>
+                                        <option value="csv">CSV</option>
+                                        <option value="claude">Claude</option>
+                                        <option value="html">HTML</option>
+                                        <option value="zip">ZIP</option>
+                                    </select>
+                                </div>
+                                <div class="col-md-8 mb-3">
+                                    <label for="output-dir" class="form-label">Директория вывода</label>
+                                    <input type="text" class="form-control" id="output-dir" name="output-dir" value="output">
+                                </div>
+                            </div>
+                            
+                            <div class="row">
+                                <div class="col-md-6 mb-3">
+                                    <label for="include-pattern" class="form-label">Включать URL (regex)</label>
+                                    <input type="text" class="form-control" id="include-pattern" name="include-pattern" placeholder="Опционально">
+                                </div>
+                                <div class="col-md-6 mb-3">
+                                    <label for="exclude-pattern" class="form-label">Исключать URL (regex)</label>
+                                    <input type="text" class="form-control" id="exclude-pattern" name="exclude-pattern" placeholder="Опционально">
+                                </div>
+                            </div>
+                            
+                            <div class="mb-3">
+                                <div class="form-check form-check-inline">
+                                    <input class="form-check-input" type="checkbox" id="follow-links" name="follow-links" checked>
+                                    <label class="form-check-label" for="follow-links">Следовать по ссылкам</label>
+                                </div>
+                                <div class="form-check form-check-inline">
+                                    <input class="form-check-input" type="checkbox" id="save-assets" name="save-assets">
+                                    <label class="form-check-label" for="save-assets">Сохранять ассеты</label>
+                                </div>
+                            </div>
+                            
+                            <button type="submit" class="btn btn-primary">Запустить парсинг</button>
+                        </form>
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        <!-- Список задач -->
+        <div class="row">
+            <div class="col">
+                <h2>Задачи парсинга</h2>
+                <div id="tasks-container">
+                    <!-- Сюда будут добавляться карточки задач -->
+                    <div class="text-center py-5" id="no-tasks-message">
+                        <p class="text-muted">Нет активных задач парсинга</p>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- Шаблон карточки задачи -->
+    <template id="task-card-template">
+        <div class="card task-card" data-task-id="">
+            <div class="card-header d-flex justify-content-between align-items-center">
+                <h5 class="card-title mb-0">Парсинг URL: <span class="task-url"></span></h5>
+                <span class="badge task-status"></span>
+            </div>
+            <div class="card-body">
+                <div class="mb-3">
+                    <h6>Настройки:</h6>
+                    <div class="row">
+                        <div class="col-md-3">
+                            <small class="text-muted">Глубина:</small> <span class="task-depth"></span>
+                        </div>
+                        <div class="col-md-3">
+                            <small class="text-muted">Формат:</small> <span class="task-format"></span>
+                        </div>
+                        <div class="col-md-3">
+                            <small class="text-muted">Директория:</small> <span class="task-dir"></span>
+                        </div>
+                        <div class="col-md-3">
+                            <small class="text-muted">Результаты:</small> <span class="task-results"></span>
+                        </div>
+                    </div>
+                </div>
+                
+                <div class="mb-3">
+                    <div class="d-flex justify-content-between align-items-center mb-2">
+                        <h6 class="mb-0">Прогресс:</h6>
+                        <button class="btn btn-sm btn-link toggle-log">Показать/Скрыть лог</button>
+                    </div>
+                    <div class="log-container" style="display: none;"></div>
+                </div>
+                
+                <div class="task-actions">
+                    <button class="btn btn-sm btn-warning cancel-task" style="display: none;">Отменить</button>
+                    <button class="btn btn-sm btn-primary download-results" style="display: none;">Скачать результаты</button>
+                    <button class="btn btn-sm btn-danger delete-task">Удалить</button>
+                </div>
+            </div>
+            <div class="card-footer text-muted">
+                <small>Время выполнения: <span class="task-time"></span></small>
+            </div>
+        </div>
+    </template>
+
+    <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0-alpha1/dist/js/bootstrap.bundle.min.js"></script>
+    <script>
+        document.addEventListener('DOMContentLoaded', function() {
+            // Обработка формы создания задачи
+            document.getElementById('new-task-form').addEventListener('submit', async function(e) {
+                e.preventDefault();
+                
+                const url = document.getElementById('url').value;
+                const maxDepth = parseInt(document.getElementById('max-depth').value);
+                const delay = parseFloat(document.getElementById('delay').value);
+                const timeout = parseInt(document.getElementById('timeout').value);
+                const outputFormat = document.getElementById('output-format').value;
+                const outputDir = document.getElementById('output-dir').value;
+                const includePattern = document.getElementById('include-pattern').value;
+                const excludePattern = document.getElementById('exclude-pattern').value;
+                const followLinks = document.getElementById('follow-links').checked;
+                const saveAssets = document.getElementById('save-assets').checked;
+                
+                const config = {
+                    max_depth: maxDepth,
+                    delay: delay,
+                    timeout: timeout,
+                    output_format: outputFormat,
+                    output_dir: outputDir,
+                    follow_links: followLinks,
+                    save_assets: saveAssets
+                };
+                
+                if (includePattern) {
+                    config.include_patterns = [includePattern];
+                }
+                
+                if (excludePattern) {
+                    config.exclude_patterns = [excludePattern];
+                }
+                
+                try {
+                    const response = await fetch('/api/tasks', {
+                        method: 'POST',
+                        headers: {
+                            'Content-Type': 'application/json'
+                        },
+                        body: JSON.stringify({
+                            url: url,
+                            config: config
+                        })
+                    });
+                    
+                    if (!response.ok) {
+                        throw new Error('Ошибка при создании задачи');
+                    }
+                    
+                    const task = await response.json();
+                    
+                    // Скрываем сообщение об отсутствии задач
+                    document.getElementById('no-tasks-message').style.display = 'none';
+                    
+                    // Добавляем карточку задачи
+                    addTaskCard(task);
+                    
+                    // Запускаем обновление прогресса
+                    startTaskUpdates(task.id);
+                    
+                } catch (error) {
+                    console.error('Ошибка:', error);
+                    alert('Ошибка при создании задачи: ' + error.message);
+                }
+            });
+            
+            // Загрузка существующих задач
+            loadTasks();
+            
+            // Обработка действий с задачами
+            document.getElementById('tasks-container').addEventListener('click', function(e) {
+                // Получаем ID задачи
+                const taskCard = e.target.closest('.task-card');
+                if (!taskCard) return;
+                
+                const taskId = taskCard.dataset.taskId;
+                
+                // Показать/скрыть лог
+                if (e.target.classList.contains('toggle-log')) {
+                    const logContainer = taskCard.querySelector('.log-container');
+                    logContainer.style.display = logContainer.style.display === 'none' ? 'block' : 'none';
+                    return;
+                }
+                
+                // Отменить задачу
+                if (e.target.classList.contains('cancel-task')) {
+                    cancelTask(taskId);
+                    return;
+                }
+                
+                // Скачать результаты
+                if (e.target.classList.contains('download-results')) {
+                    window.location.href = `/api/tasks/${taskId}/download`;
+                    return;
+                }
+                
+                // Удалить задачу
+                if (e.target.classList.contains('delete-task')) {
+                    deleteTask(taskId);
+                    return;
+                }
+            });
+        });
+        
+        // Функция добавления карточки задачи
+        function addTaskCard(task) {
+            // Клонируем шаблон
+            const template = document.getElementById('task-card-template');
+            const taskCard = template.content.cloneNode(true).querySelector('.task-card');
+            
+            // Заполняем данные
+            taskCard.dataset.taskId = task.id;
+            taskCard.querySelector('.task-url').textContent = task.url;
+            
+            // Статус
+            const statusBadge = taskCard.querySelector('.task-status');
+            statusBadge.textContent = getStatusText(task.status);
+            statusBadge.classList.add(getStatusClass(task.status));
+            
+            // Настройки
+            taskCard.querySelector('.task-depth').textContent = task.config.max_depth;
+            taskCard.querySelector('.task-format').textContent = task.config.output_format;
+            taskCard.querySelector('.task-dir').textContent = task.config.output_dir;
+            taskCard.querySelector('.task-results').textContent = task.results_count || 0;
+            
+            // Лог
+            const logContainer = taskCard.querySelector('.log-container');
+            updateTaskLog(logContainer, task.progress);
+            
+            // Кнопки
+            updateTaskButtons(taskCard, task.status);
+            
+            // Время выполнения
+            taskCard.querySelector('.task-time').textContent = formatTime(task.execution_time);
+            
+            // Добавляем карточку
+            document.getElementById('tasks-container').prepend(taskCard);
+        }
+        
+        // Функция обновления карточки задачи
+        function updateTaskCard(taskId, task) {
+            const taskCard = document.querySelector(`.task-card[data-task-id="${taskId}"]`);
+            if (!taskCard) return;
+            
+            // Статус
+            const statusBadge = taskCard.querySelector('.task-status');
+            statusBadge.textContent = getStatusText(task.status);
+            statusBadge.className = 'badge ' + getStatusClass(task.status);
+            
+            // Результаты
+            taskCard.querySelector('.task-results').textContent = task.results_count || 0;
+            
+            // Лог
+            const logContainer = taskCard.querySelector('.log-container');
+            updateTaskLog(logContainer, task.progress);
+            
+            // Кнопки
+            updateTaskButtons(taskCard, task.status);
+            
+            // Время выполнения
+            taskCard.querySelector('.task-time').textContent = formatTime(task.execution_time);
+        }
+        
+        // Функция обновления лога задачи
+        function updateTaskLog(logContainer, progress) {
+            if (!progress || !progress.length) return;
+            
+            logContainer.innerHTML = '';
+            for (const message of progress) {
+                const line = document.createElement('div');
+                line.textContent = message;
+                logContainer.appendChild(line);
+            }
+            
+            // Прокрутка в конец
+            logContainer.scrollTop = logContainer.scrollHeight;
+        }
+        
+        // Функция обновления кнопок задачи
+        function updateTaskButtons(taskCard, status) {
+            const cancelButton = taskCard.querySelector('.cancel-task');
+            const downloadButton = taskCard.querySelector('.download-results');
+            
+            if (status === 'processing') {
+                cancelButton.style.display = 'block';
+            } else {
+                cancelButton.style.display = 'none';
+            }
+            
+            if (status === 'completed') {
+                downloadButton.style.display = 'block';
+            } else {
+                downloadButton.style.display = 'none';
+            }
+        }
+        
+        // Функция получения текста статуса
+        function getStatusText(status) {
+            switch (status) {
+                case 'pending': return 'Ожидание';
+                case 'processing': return 'Выполняется';
+                case 'completed': return 'Завершено';
+                case 'error': return 'Ошибка';
+                case 'cancelled': return 'Отменено';
+                default: return status;
+            }
+        }
+        
+        // Функция получения класса статуса
+        function getStatusClass(status) {
+            switch (status) {
+                case 'pending': return 'bg-secondary';
+                case 'processing': return 'bg-primary';
+                case 'completed': return 'bg-success';
+                case 'error': return 'bg-danger';
+                case 'cancelled': return 'bg-warning';
+                default: return 'bg-secondary';
+            }
+        }
+        
+        // Функция форматирования времени
+        function formatTime(seconds) {
+            if (!seconds) return 'Н/Д';
+            
+            if (seconds < 60) {
+                return `${seconds.toFixed(1)} сек`;
+            } else if (seconds < 3600) {
+                const minutes = Math.floor(seconds / 60);
+                const remainingSeconds = seconds % 60;
+                return `${minutes} мин ${Math.round(remainingSeconds)} сек`;
+            } else {
+                const hours = Math.floor(seconds / 3600);
+                const minutes = Math.floor((seconds % 3600) / 60);
+                return `${hours} ч ${minutes} мин`;
+            }
+        }
+        
+        // Функция загрузки задач
+        async function loadTasks() {
+            try {
+                const response = await fetch('/api/tasks');
+                if (!response.ok) {
+                    throw new Error('Ошибка при загрузке задач');
+                }
+                
+                const tasks = await response.json();
+                
+                if (tasks.length > 0) {
+                    // Скрываем сообщение об отсутствии задач
+                    document.getElementById('no-tasks-message').style.display = 'none';
+                    
+                    // Добавляем карточки задач
+                    for (const task of tasks) {
+                        addTaskCard(task);
+                        
+                        // Запускаем обновление для активных задач
+                        if (task.status === 'processing' || task.status === 'pending') {
+                            startTaskUpdates(task.id);
+                        }
+                    }
+                }
+            } catch (error) {
+                console.error('Ошибка:', error);
+            }
+        }
+        
+        // Обновление прогресса задач
+        const taskUpdates = {};
+        
+        // Функция запуска обновления задачи
+        function startTaskUpdates(taskId) {
+            if (taskUpdates[taskId]) return;
+            
+            // Запускаем интервал обновления
+            taskUpdates[taskId] = setInterval(async function() {
+                try {
+                    const response = await fetch(`/api/tasks/${taskId}/progress`);
+                    if (!response.ok) {
+                        throw new Error('Ошибка при получении прогресса задачи');
+                    }
+                    
+                    const progress = await response.json();
+                    
+                    // Обновляем карточку
+                    updateTaskCard(taskId, progress);
+                    
+                    // Если задача завершена, останавливаем обновление
+                    if (progress.status !== 'processing' && progress.status !== 'pending') {
+                        stopTaskUpdates(taskId);
+                        
+                        // Получаем полную информацию о задаче
+                        const taskResponse = await fetch(`/api/tasks/${taskId}`);
+                        if (taskResponse.ok) {
+                            const task = await taskResponse.json();
+                            updateTaskCard(taskId, task);
+                        }
+                    }
+                } catch (error) {
+                    console.error('Ошибка:', error);
+                    stopTaskUpdates(taskId);
+                }
+            }, 1000);
+        }
+        
+        // Функция остановки обновления задачи
+        function stopTaskUpdates(taskId) {
+            if (taskUpdates[taskId]) {
+                clearInterval(taskUpdates[taskId]);
+                delete taskUpdates[taskId];
+            }
+        }
+        
+        // Функция отмены задачи
+        async function cancelTask(taskId) {
+            try {
+                const response = await fetch(`/api/tasks/${taskId}/cancel`, {
+                    method: 'POST'
+                });
+                
+                if (!response.ok) {
+                    throw new Error('Ошибка при отмене задачи');
+                }
+                
+                // Обновляем карточку
+                const taskResponse = await fetch(`/api/tasks/${taskId}`);
+                if (taskResponse.ok) {
+                    const task = await taskResponse.json();
+                    updateTaskCard(taskId, task);
+                }
+                
+            } catch (error) {
+                console.error('Ошибка:', error);
+                alert('Ошибка при отмене задачи: ' + error.message);
+            }
+        }
+        
+        // Функция удаления задачи
+        async function deleteTask(taskId) {
+            if (!confirm('Вы уверены, что хотите удалить эту задачу?')) {
+                return;
+            }
+            
+            try {
+                const response = await fetch(`/api/tasks/${taskId}/delete`, {
+                    method: 'DELETE'
+                });
+                
+                if (!response.ok) {
+                    throw new Error('Ошибка при удалении задачи');
+                }
+                
+                // Удаляем карточку
+                const taskCard = document.querySelector(`.task-card[data-task-id="${taskId}"]`);
+                if (taskCard) {
+                    taskCard.remove();
+                }
+                
+                // Останавливаем обновление
+                stopTaskUpdates(taskId);
+                
+                // Если это была последняя задача, показываем сообщение
+                const tasks = document.querySelectorAll('.task-card');
+                if (tasks.length === 0) {
+                    document.getElementById('no-tasks-message').style.display = 'block';
+                }
+                
+            } catch (error) {
+                console.error('Ошибка:', error);
+                alert('Ошибка при удалении задачи: ' + error.message);
+            }
+        }
+    </script>
+</body>
+</html>
