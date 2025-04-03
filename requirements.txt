@@ -12,3 +12,6 @@ rich>=10.7.0
 tqdm>=4.62.2
 html2text>=2020.1.16
 lxml>=4.9.0
+sentence-transformers>=2.2.0
+numpy>=1.21.0
+torch>=1.9.0
